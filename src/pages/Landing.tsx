@@ -12,7 +12,7 @@ const Landing = () => {
   const [searchInput, setSearchInput] = useState("");
 
   const handleAnalysis = (mode: string) => {
-    navigate(`/analysis?mode=${mode}${searchInput ? `&query=${encodeURIComponent(searchInput)}` : ''}`);
+    navigate(`/input?mode=${mode}${searchInput ? `&query=${encodeURIComponent(searchInput)}` : ''}`);
   };
 
   const quickActions = [
