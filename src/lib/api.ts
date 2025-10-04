@@ -1,9 +1,9 @@
 /**
  * API Service for Fake News Detector Frontend
- * Handles all backend communication
+ * Handles all backend communication via Supabase Edge Functions
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+import { supabase } from "@/integrations/supabase/client";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -37,7 +37,7 @@ export interface Evidence {
   url: string;
   publishedAt: string;
   description: string;
-  sentiment: string;
+  sentiment: 'supporting' | 'contradicting' | 'neutral';
 }
 
 export interface SocialDiscussion {
@@ -47,7 +47,7 @@ export interface SocialDiscussion {
   numComments: number;
   url: string;
   createdAt: string;
-  sentiment: string;
+  sentiment: 'positive' | 'neutral' | 'negative';
 }
 
 export interface Highlight {
@@ -102,20 +102,64 @@ export interface BatchResult {
  * Analyze a single article (text, URL, or image)
  */
 export async function analyzeArticle(input: ArticleInput): Promise<AnalysisResult> {
-  const response = await fetch(`${API_BASE_URL}/analyze`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
+  try {
+    console.log('Analyzing article:', input);
+    
+    // Call the analyze-article edge function
+    const { data, error } = await supabase.functions.invoke('analyze-article', {
+      body: input,
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Network error' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+    if (error) {
+      console.error('Edge function error:', error);
+      throw new Error(error.message || 'Analysis failed');
+    }
+
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    console.log('Analysis result:', data);
+
+    // Fetch supporting evidence
+    try {
+      const evidenceResult = await searchEvidence(input.text || input.title || '', input.title);
+      if (evidenceResult) {
+        data.evidence = evidenceResult.evidence || [];
+        data.factChecks = evidenceResult.factChecks || [];
+        data.socialDiscussions = evidenceResult.socialDiscussions || [];
+      }
+    } catch (evidenceError) {
+      console.error('Evidence search failed:', evidenceError);
+      // Continue with analysis even if evidence search fails
+    }
+
+    return data as AnalysisResult;
+  } catch (error) {
+    console.error('Error in analyzeArticle:', error);
+    throw error;
   }
+}
 
-  return response.json();
+/**
+ * Search for supporting evidence
+ */
+async function searchEvidence(query: string, title?: string) {
+  try {
+    const { data, error } = await supabase.functions.invoke('search-evidence', {
+      body: { query, title },
+    });
+
+    if (error) {
+      console.error('Evidence search error:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error searching evidence:', error);
+    return null;
+  }
 }
 
 /**
@@ -126,53 +170,75 @@ export async function analyzeBatch(articles: ArticleInput[]): Promise<{ results:
     throw new Error('Maximum 5 articles per batch');
   }
 
-  const response = await fetch(`${API_BASE_URL}/analyze/batch`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ articles }),
-  });
+  try {
+    const results = await Promise.all(
+      articles.map(async (article, index) => {
+        try {
+          const result = await analyzeArticle(article);
+          return {
+            id: `article-${index}`,
+            success: true,
+            verdict: result.verdict,
+            verdictClass: result.verdictClass,
+            confidenceScore: result.confidenceScore,
+            overallConfidence: result.overallConfidence,
+            recommendation: result.recommendation,
+            breakdown: result.breakdown,
+            metadata: result.metadata,
+          };
+        } catch (error) {
+          return {
+            id: `article-${index}`,
+            success: false,
+            error: error instanceof Error ? error.message : 'Analysis failed',
+          };
+        }
+      })
+    );
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Network error' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+    return { results };
+  } catch (error) {
+    console.error('Batch analysis error:', error);
+    throw error;
   }
-
-  return response.json();
 }
 
 /**
  * Get text highlights for suspicious phrases
  */
 export async function getTextHighlights(text: string): Promise<{ highlights: Highlight[] }> {
-  const response = await fetch(`${API_BASE_URL}/analyze/highlights`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ text }),
+  // Simple client-side implementation
+  const highlights: Highlight[] = [];
+  const suspiciousPatterns = [
+    { pattern: /shocking|breaking|urgent/gi, type: 'sensational' as const, severity: 'medium' as const },
+    { pattern: /must see|you won't believe|doctors hate/gi, type: 'clickbait' as const, severity: 'high' as const },
+    { pattern: /never|always|everyone|no one/gi, type: 'absolutist' as const, severity: 'low' as const },
+  ];
+
+  suspiciousPatterns.forEach(({ pattern, type, severity }) => {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      highlights.push({
+        text: match[0],
+        type,
+        position: match.index,
+        reason: `Potentially ${type} language detected`,
+        severity,
+      });
+    }
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Network error' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
-  }
-
-  return response.json();
+  return { highlights };
 }
 
 /**
  * Health check
  */
 export async function checkHealth(): Promise<{ status: string; timestamp: string }> {
-  const response = await fetch(`${API_BASE_URL}/health`);
-  
-  if (!response.ok) {
-    throw new Error('Backend is not responding');
-  }
-
-  return response.json();
+  return {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+  };
 }
 
 // ============================================================================

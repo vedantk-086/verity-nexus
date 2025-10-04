@@ -68,21 +68,36 @@ const Input = () => {
 
     setIsProcessing(true);
 
-    // TODO: Connect to backend API here
-    // Example:
-    // const response = await fetch('/api/analyze', {
-    //   method: 'POST',
-    //   body: JSON.stringify({ mode, content: textInput || urlInput, image: imageFile }),
-    // });
-    // const data = await response.json();
+    try {
+      // Prepare data for navigation
+      const inputData = {
+        mode,
+        text: mode === "text" ? textInput : undefined,
+        url: mode === "url" ? urlInput : undefined,
+        imageFile: mode === "image" ? imageFile?.name : undefined,
+      };
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsProcessing(false);
-      // Navigate to analysis with the input data
-      const queryData = mode === "text" ? textInput : mode === "url" ? urlInput : "image-uploaded";
+      // Store in sessionStorage for the analysis page
+      sessionStorage.setItem('analysisInput', JSON.stringify({
+        text: textInput,
+        title: mode === "text" ? textInput.split('\n')[0].substring(0, 100) : undefined,
+        url: urlInput,
+        imageUrl: imageFile?.name,
+      }));
+
+      // Navigate to analysis
+      const queryData = mode === "text" 
+        ? textInput.substring(0, 100) 
+        : mode === "url" 
+        ? urlInput 
+        : "image-uploaded";
+      
       navigate(`/analysis?mode=${mode}&query=${encodeURIComponent(queryData)}`);
-    }, 1000);
+    } catch (error) {
+      console.error('Submit error:', error);
+      toast.error('Failed to submit content');
+      setIsProcessing(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

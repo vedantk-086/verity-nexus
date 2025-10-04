@@ -1,1 +1,7 @@
 project_id = "levvupqxozuwxofctzce"
+
+[functions.analyze-article]
+verify_jwt = false
+
+[functions.search-evidence]
+verify_jwt = false

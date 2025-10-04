@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { CheckCircle2, XCircle, AlertCircle, ExternalLink, Save, Share2, ArrowLeft, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, AlertCircle, ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { AnalysisCard } from "@/components/AnalysisCard";
+import { analyzeArticle, type AnalysisResult } from "@/lib/api";
 
 type Verdict = "real" | "fake" | "uncertain" | null;
 
@@ -16,17 +17,40 @@ const Analysis = () => {
 
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [verdict, setVerdict] = useState<Verdict>(null);
-  const [confidence, setConfidence] = useState(0);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Simulate analysis
-    setTimeout(() => {
-      const verdicts: Verdict[] = ["real", "fake", "uncertain"];
-      const randomVerdict = verdicts[Math.floor(Math.random() * verdicts.length)];
-      setVerdict(randomVerdict);
-      setConfidence(Math.floor(Math.random() * 30) + 70); // 70-100%
-      setIsAnalyzing(false);
-    }, 3000);
+    const performAnalysis = async () => {
+      try {
+        // Get input data from sessionStorage
+        const storedInput = sessionStorage.getItem('analysisInput');
+        if (!storedInput) {
+          throw new Error('No input data found');
+        }
+
+        const input = JSON.parse(storedInput);
+        console.log('Starting analysis with input:', input);
+
+        // Call the analysis API
+        const result = await analyzeArticle(input);
+        console.log('Analysis complete:', result);
+
+        setAnalysisResult(result);
+        setVerdict(result.verdictClass);
+        setIsAnalyzing(false);
+        
+        // Clear the stored input
+        sessionStorage.removeItem('analysisInput');
+      } catch (err) {
+        console.error('Analysis error:', err);
+        setError(err instanceof Error ? err.message : 'Analysis failed');
+        setIsAnalyzing(false);
+        toast.error('Analysis failed. Please try again.');
+      }
+    };
+
+    performAnalysis();
   }, []);
 
   const getVerdictConfig = () => {
@@ -65,20 +89,6 @@ const Analysis = () => {
 
   const verdictConfig = getVerdictConfig();
 
-  const supportingResources = [
-    { title: "Reuters Fact Check", url: "https://reuters.com", reliability: 95 },
-    { title: "Snopes Verification", url: "https://snopes.com", reliability: 90 },
-    { title: "AP News Reference", url: "https://apnews.com", reliability: 92 },
-  ];
-
-  const handleSave = () => {
-    toast.success("Report saved successfully!");
-  };
-
-  const handleShare = () => {
-    toast.success("Share link copied to clipboard!");
-  };
-
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
       {/* Animated background */}
@@ -98,17 +108,10 @@ const Analysis = () => {
               className="text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft className="mr-2" />
-              Back to Search
+              Back to Landing
             </Button>
             <h1 className="text-xl font-bold text-gradient">Analysis Results</h1>
-            <div className="flex gap-2">
-              <Button variant="ghost" size="icon" onClick={handleSave}>
-                <Save className="w-4 h-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={handleShare}>
-                <Share2 className="w-4 h-4" />
-              </Button>
-            </div>
+            <div className="w-24"></div>
           </div>
         </header>
 
@@ -135,78 +138,40 @@ const Analysis = () => {
               <Card className="glassmorphism p-12 text-center animate-fade-in">
                 <Loader2 className="w-16 h-16 mx-auto mb-6 text-primary animate-spin" />
                 <h2 className="text-2xl font-bold text-foreground mb-2">Analyzing Content...</h2>
-                <p className="text-muted-foreground">Our AI agents are verifying the information</p>
+                <p className="text-muted-foreground mb-4">Our AI agents are verifying the information</p>
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p>✓ Checking source credibility...</p>
+                  <p>✓ Analyzing language patterns...</p>
+                  <p>✓ Cross-referencing with fact-checkers...</p>
+                  <p>✓ Searching for supporting evidence...</p>
+                </div>
               </Card>
             )}
 
-            {/* Verdict Display */}
-            {!isAnalyzing && verdictConfig && (
-              <>
-                <Card
-                  className={`glassmorphism p-12 text-center border-4 ${verdictConfig.borderColor} ${verdictConfig.bgColor} animate-fade-in`}
-                >
-                  <verdictConfig.icon className={`w-24 h-24 mx-auto mb-6 ${verdictConfig.color} animate-float`} />
-                  <h2 className={`text-5xl font-bold mb-4 ${verdictConfig.color}`}>
-                    {verdictConfig.label}
-                  </h2>
-                  <p className="text-xl text-muted-foreground">{verdictConfig.message}</p>
-                </Card>
+            {/* Error State */}
+            {error && !isAnalyzing && (
+              <Card className="glassmorphism p-12 text-center animate-fade-in border-2 border-destructive/50">
+                <XCircle className="w-16 h-16 mx-auto mb-6 text-destructive" />
+                <h2 className="text-2xl font-bold text-foreground mb-2">Analysis Failed</h2>
+                <p className="text-muted-foreground mb-6">{error}</p>
+                <Button variant="neon" onClick={() => navigate("/landing")}>
+                  Try Again
+                </Button>
+              </Card>
+            )}
 
-                {/* Confidence Level */}
-                <Card className="glassmorphism p-8 animate-fade-in" style={{ animationDelay: "0.2s" }}>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-xl font-bold text-foreground">Confidence Level</h3>
-                      <span className="text-3xl font-bold text-gradient">{confidence}%</span>
-                    </div>
-                    <Progress value={confidence} className="h-3" />
-                    <p className="text-sm text-muted-foreground">
-                      Based on multi-agent analysis and cross-reference verification
-                    </p>
-                  </div>
-                </Card>
-
-                {/* Supporting Resources */}
-                <Card className="glassmorphism p-8 animate-fade-in" style={{ animationDelay: "0.4s" }}>
-                  <h3 className="text-xl font-bold text-foreground mb-6">Supporting Evidence</h3>
-                  <div className="space-y-4">
-                    {supportingResources.map((resource, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between p-4 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors"
-                      >
-                        <div className="flex-1">
-                          <p className="font-semibold text-foreground">{resource.title}</p>
-                          <a
-                            href={resource.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-primary hover:underline flex items-center gap-1"
-                          >
-                            {resource.url}
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs text-muted-foreground">Reliability</p>
-                          <p className="text-lg font-bold text-green-500">{resource.reliability}%</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-
+            {/* Analysis Results */}
+            {!isAnalyzing && !error && analysisResult && (
+              <div className="animate-fade-in">
+                <AnalysisCard result={analysisResult} />
+                
                 {/* Actions */}
-                <div className="flex flex-col sm:flex-row gap-4 justify-center animate-fade-in" style={{ animationDelay: "0.6s" }}>
+                <div className="flex flex-col sm:flex-row gap-4 justify-center mt-8">
                   <Button variant="neon" size="lg" onClick={() => navigate("/landing")}>
                     Analyze Another
                   </Button>
-                  <Button variant="glass" size="lg" onClick={handleSave}>
-                    <Save className="mr-2" />
-                    Save Report
-                  </Button>
                 </div>
-              </>
+              </div>
             )}
           </div>
         </div>
